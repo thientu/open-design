@@ -132,6 +132,7 @@ export interface Dict {
   'settings.cliEnvHint': string;
   'settings.cliEnvClaudeConfigDir': string;
   'settings.cliEnvCodexHome': string;
+  'settings.cliEnvCodexBin': string;
   'settings.modelCustom': string;
   'settings.modelCustomLabel': string;
   'settings.modelCustomPlaceholder': string;
