@@ -22,6 +22,10 @@ import type { MediaProvider } from '../media/models';
 import { PetSettings } from './pet/PetSettings';
 import { LibrarySection } from './LibrarySection';
 import {
+  applyAppearanceToDocument,
+  normalizeAccentColor,
+} from '../state/appearance';
+import {
   FAILURE_SOUNDS,
   SUCCESS_SOUNDS,
   notificationPermission,
@@ -372,15 +376,13 @@ export function SettingsDialog({
   // On Save, App's useLayoutEffect fires after unmount and applies the new
   // saved theme, so this cleanup is effectively a no-op in that path.
   useLayoutEffect(() => {
-    const saved = initial.theme ?? 'system';
     return () => {
-      if (saved === 'system') {
-        document.documentElement.removeAttribute('data-theme');
-      } else {
-        document.documentElement.setAttribute('data-theme', saved);
-      }
+      applyAppearanceToDocument({
+        theme: initial.theme ?? 'system',
+        accentColor: initial.accentColor,
+      });
     };
-  }, [initial.theme]);
+  }, [initial.theme, initial.accentColor]);
   const [showApiKey, setShowApiKey] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
@@ -1330,13 +1332,13 @@ function MediaProvidersSection({
     });
   const updateProvider = (
     provider: MediaProvider,
-    patch: { apiKey?: string; baseUrl?: string },
+    patch: { apiKey?: string; baseUrl?: string; model?: string },
   ) => {
     setCfg((curr) => {
-      const prev = curr.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '' };
+      const prev = curr.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '', model: '' };
       const next = { ...prev, ...patch };
       const map = { ...(curr.mediaProviders ?? {}) };
-      if (!next.apiKey.trim() && !next.baseUrl.trim()) {
+      if (!next.apiKey.trim() && !next.baseUrl.trim() && !next.model?.trim()) {
         delete map[provider.id];
       } else {
         map[provider.id] = next;
@@ -1355,9 +1357,11 @@ function MediaProvidersSection({
       </div>
       <div className="media-provider-list">
         {providers.map((provider) => {
-          const entry = cfg.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '' };
+          const entry = cfg.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '', model: '' };
           const configured = Boolean(entry.apiKey.trim() || entry.baseUrl.trim());
           const disabled = !provider.integrated;
+          const supportsCustomModel = provider.supportsCustomModel === true;
+          const clearable = Boolean(entry.apiKey.trim() || entry.baseUrl.trim() || entry.model?.trim());
           return (
             <div key={provider.id} className={`media-provider-row${provider.integrated ? '' : ' pending'}`}>
               <div className="media-provider-head">
@@ -1392,11 +1396,20 @@ function MediaProvidersSection({
                   disabled={disabled}
                   onChange={(e) => updateProvider(provider, { baseUrl: e.target.value })}
                 />
+                {supportsCustomModel ? (
+                  <input
+                    value={entry.model ?? ''}
+                    placeholder="gemini-3.1-flash-image-preview"
+                    aria-label={`${provider.label} model`}
+                    disabled={disabled}
+                    onChange={(e) => updateProvider(provider, { model: e.target.value })}
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="ghost"
-                  disabled={!configured}
-                  onClick={() => updateProvider(provider, { apiKey: '', baseUrl: '' })}
+                  disabled={!clearable}
+                  onClick={() => updateProvider(provider, { apiKey: '', baseUrl: '', model: '' })}
                 >
                   {t('settings.mediaProviderClear')}
                 </button>
@@ -1992,6 +2005,18 @@ const THEMES: Array<{ value: AppTheme; labelKey: 'settings.themeSystem' | 'setti
   { value: 'dark', labelKey: 'settings.themeDark' },
 ];
 
+const DEFAULT_ACCENT_COLOR = '#c96442';
+const ACCENT_SWATCHES = [
+  DEFAULT_ACCENT_COLOR,
+  '#2563eb',
+  '#7c3aed',
+  '#059669',
+  '#dc2626',
+  '#d97706',
+  '#0891b2',
+  '#db2777',
+] as const;
+
 function AppearanceSection({
   cfg,
   setCfg,
@@ -2001,16 +2026,20 @@ function AppearanceSection({
 }) {
   const { t } = useI18n();
   const current = cfg.theme ?? 'system';
+  const currentAccent = normalizeAccentColor(cfg.accentColor) ?? DEFAULT_ACCENT_COLOR;
 
   // Apply the draft theme immediately so the user sees a live preview
   // before hitting Save. SettingsDialog's cleanup reverts this on cancel.
   useLayoutEffect(() => {
-    if (current === 'system') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', current);
-    }
-  }, [current]);
+    applyAppearanceToDocument({
+      theme: current,
+      accentColor: cfg.accentColor,
+    });
+  }, [current, cfg.accentColor]);
+
+  const setAccentColor = (color: string | undefined) => {
+    setCfg((c) => ({ ...c, accentColor: color ? normalizeAccentColor(color) ?? c.accentColor : undefined }));
+  };
 
   return (
     <section className="settings-section">
@@ -2032,6 +2061,33 @@ function AppearanceSection({
             <span className="seg-title">{t(labelKey)}</span>
           </button>
         ))}
+      </div>
+      <div className="field">
+        <span className="field-label">Accent color</span>
+        <div className="pet-swatches" role="radiogroup" aria-label="Accent color">
+          {ACCENT_SWATCHES.map((color) => {
+            const active = currentAccent === color;
+            return (
+              <button
+                key={color}
+                type="button"
+                className={`pet-swatch${active ? ' active' : ''}`}
+                style={{ background: color }}
+                aria-label={color === DEFAULT_ACCENT_COLOR ? 'Default accent color' : color}
+                aria-checked={active}
+                role="radio"
+                onClick={() => setAccentColor(color === DEFAULT_ACCENT_COLOR ? undefined : color)}
+              />
+            );
+          })}
+          <input
+            type="color"
+            aria-label="Custom accent color"
+            className="pet-swatch-picker"
+            value={currentAccent}
+            onChange={(e) => setAccentColor(e.target.value)}
+          />
+        </div>
       </div>
     </section>
   );
